@@ -1,7 +1,7 @@
 {
 	"game": "Dino Bones",
-	"minimum_ap_version": "0.6.9",
+	"minimum_ap_version": "0.6.8",
 	"compatible_version": 7,
-	"world_version": "0.1.1",
+	"world_version": "0.1.2",
 	"authors": ["Jerrod"]
 }
