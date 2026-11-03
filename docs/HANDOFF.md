@@ -39,7 +39,7 @@
      `GARDEN_BEDS` or the support counts in `world/dino_bones/data.py` and the plugin `Spec`.
 2. Test the Mac install (run_bepinex.sh, Rosetta).
 3. Optional: traps, and prettier achievement location names.
-4. Nothing is in git or GitHub yet. Ask Austin before any push.
+4. Released v0.1.0 to github.com/poststructural/DinoBonesAPWorld (public; commits as Jerrod with the no-reply email, no Claude trailer). Ask Austin before later pushes.
 
 ## Decisions and dead ends
 - Bone checks count "Nth bone placed on species S", not mesh names. A skeleton completing sweeps any checks
