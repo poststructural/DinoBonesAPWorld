@@ -37,9 +37,9 @@
    - Confirm that placing a bone on a permitted species sends `{S} Bone 1` and that other species refuse bones.
    - Check the first-scene log dump of counts per rig, garden beds and supports. If needed, fix
      `GARDEN_BEDS` or the support counts in `world/dino_bones/data.py` and the plugin `Spec`.
-2. Test the Mac install (run_bepinex.sh, Rosetta).
+2. Test the Mac install on a real Mac: `tools/install_mac.sh` (0.1.1) installs BepInEx + plugin and writes `run_dinobones_ap.sh`, which runs `run_bepinex.sh` under `arch -x86_64` because libdoorstop.dylib is x86_64-only. Unverified: universal-binary exec picks x86_64 from a Rosetta parent, hardened-runtime re-sign.
 3. Optional: traps, and prettier achievement location names.
-4. Released v0.1.0 to github.com/poststructural/DinoBonesAPWorld (public; commits as Jerrod with the no-reply email, no Claude trailer). Ask Austin before later pushes.
+4. Released v0.1.0 and v0.1.1 (Mac installer) to github.com/poststructural/DinoBonesAPWorld (public; commits as Jerrod with the no-reply email, no Claude trailer). Ask Austin before later pushes.
 
 ## Decisions and dead ends
 - Bone checks count "Nth bone placed on species S", not mesh names. A skeleton completing sweeps any checks
