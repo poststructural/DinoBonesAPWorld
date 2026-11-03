@@ -17,14 +17,21 @@
 
 ## Install on macOS
 
-1. Extract the BepInEx macOS x64 zip into the folder that contains `DinoBones.app`.
-2. In a terminal, run `chmod +x run_bepinex.sh` in that folder.
-3. In Steam, open the game's Properties and set the launch option to
-   `"/path/to/run_bepinex.sh" %command%`, using the real path to the script.
-4. Start the game once and close it, so BepInEx creates its folders.
-5. Put `DinoBonesAP.dll` in `BepInEx/plugins/`.
+1. Download `install_mac.sh` from the release and open Terminal.
+2. Run `sh ~/Downloads/install_mac.sh`. It finds the game in your Steam libraries (or pass the app's path:
+   `sh install_mac.sh "/path/to/DinoBones.app"`), installs BepInEx and the plugin, and puts the Steam launch
+   option on your clipboard.
+3. In Steam, open the game's Properties > General > Launch Options and paste it. It looks like
+   `"/path/to/run_dinobones_ap.sh" %command%`.
 
-The macOS BepInEx build is x64. On Apple Silicon Macs the game must run under Rosetta for BepInEx to load.
+BepInEx's macOS injector is Intel-only, so on Apple Silicon the launcher starts the game under Rosetta
+(install Rosetta if macOS asks). If the game is signed with the hardened runtime, the installer offers to
+re-sign it locally so BepInEx can load; Steam's "Verify integrity of game files" undoes that, so run the
+installer again afterwards. Running it again also updates the plugin.
+
+To install by hand instead: extract `BepInEx_macos_x64_5.4.23.3.zip` next to `DinoBones.app`, put
+`DinoBonesAP.dll` in `BepInEx/plugins/`, and launch through `run_bepinex.sh` as an Intel process
+(`arch -x86_64 /bin/sh run_bepinex.sh %command%`).
 
 ## Play
 

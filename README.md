@@ -26,7 +26,8 @@ of skeletons.
 
 Download `dino_bones.apworld` and `DinoBonesAP.dll` from the
 [latest release](https://github.com/poststructural/DinoBonesAPWorld/releases/latest), then follow the
-[setup guide](world/dino_bones/docs/setup_en.md).
+[setup guide](world/dino_bones/docs/setup_en.md). On a Mac, download `install_mac.sh` too and run
+`sh ~/Downloads/install_mac.sh`: it sets up BepInEx and the plugin and gives you the Steam launch option.
 
 **Status:** first release. The world is tested, and the plugin is confirmed to load and keep a separate
 save, but full play-throughs have not been done yet. Please report issues.
