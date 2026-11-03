@@ -1,0 +1,20 @@
+name: PlayerName
+description: Dino Bones Archipelago template.
+
+game: Dino Bones
+Dino Bones:
+  # endgame: complete all nine skeletons. skeletons: complete skeletons_needed skeletons.
+  goal: endgame
+  skeletons_needed: 9
+
+  # off / milestones (every 10 percent of each skeleton) / every_bone (1,940 checks)
+  bonesanity: milestones
+
+  collectionsanity: true
+  photosanity: true
+  gardensanity: true
+  kitsanity: true
+  achievementsanity: true
+
+  # Straightening each skeleton support is a check (17). Support straightening is never gated.
+  supportsanity: false

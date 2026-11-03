@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>DinoBonesAP</AssemblyName>
+    <RootNamespace>DinoBonesAP</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <DebugType>none</DebugType>
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414;NU1701;MSB3277</NoWarn>
+    <!-- Override with: dotnet build -p:GameDir="D:\Games\DinoBones\" -->
+    <GameDir Condition="'$(GameDir)' == ''">$(MSBuildThisFileDirectory)..\..\DinoBones Tidy Up the Museum\</GameDir>
+    <!-- BepInEx 5 core, referenced by path from the sibling Cozy Cleaner tools folder (not copied). -->
+    <BepInExCore Condition="'$(BepInExCore)' == ''">$(GameDir)BepInEx\core\</BepInExCore>
+    <ManagedDir>$(GameDir)DinoBones_Data\Managed\</ManagedDir>
+    <ReleaseDir Condition="'$(ReleaseDir)' == ''">$(MSBuildThisFileDirectory)..\..\release\</ReleaseDir>
+  </PropertyGroup>
+
+  <!-- Compile against the GAME's own mscorlib/System so any BCL member the game build stripped is a
+       compile error here instead of a MissingMethodException at runtime. -->
+  <PropertyGroup>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <NoStdLib>true</NoStdLib>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <FrameworkPathOverride>$(ManagedDir)</FrameworkPathOverride>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExCore)BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExCore)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(ManagedDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CopyToRelease" AfterTargets="Build">
+    <MakeDir Directories="$(ReleaseDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ReleaseDir)" />
+  </Target>
+
+</Project>

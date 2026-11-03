@@ -1,0 +1,9 @@
+﻿DinoBones Tidy Up the Museum/
+research/decomp/
+
+plugin/*/bin/
+plugin/*/obj/
+release/
+testbridge/
+__pycache__/
+.pytest_cache/
