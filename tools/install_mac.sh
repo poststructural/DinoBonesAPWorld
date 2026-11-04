@@ -183,6 +183,11 @@ SRC=""
 for d in "$HERE" "$HERE/../release"; do
     ok=1
     for f in $OUR_DLLS; do [ -f "$d/$f" ] || ok=0; done
+    # A DinoBonesAP.dll that references Harmony is the old BepInEx build (0.1.x): ignore it.
+    if [ "$ok" = 1 ] && grep -q 0Harmony "$d/DinoBonesAP.dll" 2>/dev/null; then
+        say "Ignoring the old BepInEx DinoBonesAP.dll in $d (0.1.x)."
+        ok=0
+    fi
     if [ "$ok" = 1 ]; then SRC=$(cd "$d" && pwd -P); break; fi
 done
 if [ -n "$SRC" ]; then

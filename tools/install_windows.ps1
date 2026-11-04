@@ -178,6 +178,11 @@ try {
     foreach ($c in $cands) {
         $ok = $true
         foreach ($f in $OurDlls) { if (-not (Test-Path -LiteralPath (Join-Path $c $f))) { $ok = $false } }
+        # A DinoBonesAP.dll that references Harmony is the old BepInEx build (0.1.x): ignore it.
+        if ($ok -and ([IO.File]::ReadAllText((Join-Path $c 'DinoBonesAP.dll'), [Text.Encoding]::ASCII)).Contains('0Harmony')) {
+            Say "Ignoring the old BepInEx DinoBonesAP.dll in $c (0.1.x)."
+            $ok = $false
+        }
         if ($ok) { $src = (Resolve-Path -LiteralPath $c).Path; break }
     }
     if ($src) {
