@@ -174,11 +174,11 @@ namespace DinoBonesAP
                 foreach (var asm in TargetAssemblies())
                 {
                     string game = GamePath(asm), orig = OrigPath(asm);
-                    string onDisk = Weaver.ReadStamp(game);
+                    string onDisk = Weaver.ReadStamp(game);   // throws if the file does not parse: nothing is touched
                     if (onDisk == null)
                     {
                         // The game's own file (first run, update, or Steam verify): it becomes the source.
-                        Weaver.CopyAtomic(game, orig);
+                        Weaver.SaveOriginal(game, orig);
                         Plugin.Log.LogInfo("[DinoAP] saved the original " + asm + ".dll as " + orig);
                     }
                     else if (!File.Exists(orig))
@@ -240,7 +240,7 @@ namespace DinoBonesAP
                     return f == null ? null : f.Constant as string;
                 }
             }
-            catch (Exception e) { Plugin.Log.LogWarning("[DinoAP] could not read " + path + ": " + e.Message); return null; }
+            catch (Exception e) { throw new InvalidDataException("could not read " + path + " as an assembly: " + e.Message, e); }
         }
 
         /// <summary>Weave hooks into a copy of origPath written to outPath. Returns the number of woven methods.
@@ -285,31 +285,36 @@ namespace DinoBonesAP
                 asm.Write(tmp);
             }
             // Read the result back before it replaces anything.
-            if (ReadStamp(tmp) != stamp) { TryDelete(tmp); throw new InvalidDataException("woven file failed to read back: " + tmp); }
+            string back;
+            try { back = ReadStamp(tmp); } catch { TryDelete(tmp); throw; }
+            if (back != stamp) { TryDelete(tmp); throw new InvalidDataException("woven file failed to read back: " + tmp); }
             Replace(tmp, outPath);
             return count;
         }
 
-        /// <summary>Copy src to dest through a temp file, so dest is never half written.</summary>
-        public static void CopyAtomic(string src, string dest)
+        /// <summary>Save an unwoven game DLL as the .orig backup. The copy goes through a temp file that must parse as
+        /// an assembly without our marker before it replaces dest, so a woven or broken file never overwrites a backup.</summary>
+        public static void SaveOriginal(string src, string dest)
         {
             string tmp = dest + ".tmp";
             TryDelete(tmp);
             File.Copy(src, tmp);
+            string stamp;
+            try { stamp = ReadStamp(tmp); } catch { TryDelete(tmp); throw; }
+            if (stamp != null) { TryDelete(tmp); throw new InvalidDataException(src + " is woven; refusing to save it as " + dest); }
             Replace(tmp, dest);
         }
 
         // File.Replace is ReplaceFile on Windows and rename(2) on Mono/Unix: dest is swapped in one step.
+        // If it fails, dest is left exactly as it was (never deleted first) and the error propagates.
         static void Replace(string tmp, string dest)
         {
-            if (!File.Exists(dest)) { File.Move(tmp, dest); return; }
-            try { File.Replace(tmp, dest, null); }
-            catch (Exception e)
+            try
             {
-                Plugin.Log.LogWarning("[DinoAP] File.Replace(" + dest + ") failed (" + e.Message + "); deleting and moving instead");
-                File.Delete(dest);
-                File.Move(tmp, dest);
+                if (!File.Exists(dest)) File.Move(tmp, dest);
+                else File.Replace(tmp, dest, null);
             }
+            catch { TryDelete(tmp); throw; }
         }
 
         static void TryDelete(string p) { try { if (File.Exists(p)) File.Delete(p); } catch { } }

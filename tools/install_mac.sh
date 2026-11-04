@@ -114,6 +114,8 @@ EOF
 json() { osascript -l JavaScript "$TMP/json.js" "$@"; }
 
 is_woven() { [ -f "$1" ] && LC_ALL=C grep -q 'DinoBonesAP.Woven' "$1"; }
+# A real original: a PE file ("MZ") without our marker.
+is_original() { [ -f "$1" ] && [ "$(head -c 2 "$1")" = MZ ] && ! is_woven "$1"; }
 
 # macOS 13+ may block Terminal from changing files inside an app ("App Management").
 copy_in() {
@@ -140,11 +142,20 @@ EOF
 
 # ---- uninstall ---------------------------------------------------------------------------------
 if [ "$UNINSTALL" = 1 ]; then
+    # Check first, change nothing if a woven game DLL cannot be put back (the game would not start without our plugin).
+    for asm in $WOVEN_ASMS; do
+        dll="$MANAGED/$asm.dll"
+        if is_woven "$dll" && ! is_original "$dll.orig"; then
+            die "$asm.dll contains the Archipelago hooks but $asm.dll.orig is missing or not the original. Nothing was changed. Use Steam's 'Verify integrity of game files', then run --uninstall again."
+        fi
+    done
     for kind in sa rio; do
         if [ "$kind" = sa ]; then f="$SA"; else f="$RIO"; fi
         bak="$f.dinoap.bak"
         json "clean-$kind" "$f" "$TMP/clean.json" >/dev/null
-        if [ -f "$bak" ] && [ "$(json same "$TMP/clean.json" "$bak")" = yes ]; then
+        same=no
+        if [ -f "$bak" ]; then same=$(json same "$TMP/clean.json" "$bak") || die "Could not compare $(basename "$f") with its backup."; fi
+        if [ "$same" = yes ]; then
             copy_in "$bak" "$f"; say "Restored $(basename "$f") from the backup"
         else
             copy_in "$TMP/clean.json" "$f"
@@ -156,8 +167,7 @@ if [ "$UNINSTALL" = 1 ]; then
     for asm in $WOVEN_ASMS; do
         dll="$MANAGED/$asm.dll"
         if is_woven "$dll"; then
-            if [ -f "$dll.orig" ]; then copy_in "$dll.orig" "$dll"; say "Restored the original $asm.dll"
-            else say "Warning: $asm.dll is woven and $asm.dll.orig is missing. Use Steam's 'Verify integrity of game files'."; fi
+            copy_in "$dll.orig" "$dll"; say "Restored the original $asm.dll"
         fi
         rm -f "$dll.orig" "$dll.orig.tmp" "$dll.tmp"
     done
@@ -186,8 +196,10 @@ else
 fi
 
 # Back up the manifests while they are vanilla (refreshed after a game update rewrote them).
-if [ "$(json has-sa "$SA")" = no ]; then cp -f "$SA" "$SA.dinoap.bak"; say "Backed up ScriptingAssemblies.json"; fi
-if [ "$(json has-rio "$RIO")" = no ]; then cp -f "$RIO" "$RIO.dinoap.bak"; say "Backed up RuntimeInitializeOnLoads.json"; fi
+has=$(json has-sa "$SA") || die "Could not read ScriptingAssemblies.json."
+if [ "$has" = no ]; then cp -f "$SA" "$SA.dinoap.bak"; say "Backed up ScriptingAssemblies.json"; fi
+has=$(json has-rio "$RIO") || die "Could not read RuntimeInitializeOnLoads.json."
+if [ "$has" = no ]; then cp -f "$RIO" "$RIO.dinoap.bak"; say "Backed up RuntimeInitializeOnLoads.json"; fi
 
 for f in $OUR_DLLS; do
     copy_in "$SRC/$f" "$MANAGED/$f"
@@ -195,13 +207,17 @@ for f in $OUR_DLLS; do
 done
 say "Copied $OUR_DLLS into $MANAGED"
 
-case "$(json add-sa "$SA")" in
+result=$(json add-sa "$SA") || die "Could not edit ScriptingAssemblies.json."
+case "$result" in
     added) say "Added DinoBonesAP.dll to ScriptingAssemblies.json" ;;
-    *) say "ScriptingAssemblies.json already lists DinoBonesAP.dll" ;;
+    present) say "ScriptingAssemblies.json already lists DinoBonesAP.dll" ;;
+    *) die "Unexpected result editing ScriptingAssemblies.json: $result" ;;
 esac
-case "$(json add-rio "$RIO")" in
+result=$(json add-rio "$RIO") || die "Could not edit RuntimeInitializeOnLoads.json."
+case "$result" in
     added) say "Added the DinoBonesAP boot entry to RuntimeInitializeOnLoads.json" ;;
-    *) say "RuntimeInitializeOnLoads.json already has the DinoBonesAP entry" ;;
+    present) say "RuntimeInitializeOnLoads.json already has the DinoBonesAP entry" ;;
+    *) die "Unexpected result editing RuntimeInitializeOnLoads.json: $result" ;;
 esac
 
 remove_old_bepinex_plugin

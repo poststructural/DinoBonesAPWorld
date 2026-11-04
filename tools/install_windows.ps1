@@ -89,6 +89,11 @@ function Is-Woven([string]$path) {
     if (-not (Test-Path -LiteralPath $path)) { return $false }
     return [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path)).Contains('DinoBonesAP.Woven')
 }
+function Is-Original([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    $b = [IO.File]::ReadAllBytes($path)
+    return ($b.Length -gt 2 -and $b[0] -eq 0x4D -and $b[1] -eq 0x5A -and -not (Is-Woven $path))
+}
 function Same-Json($a, $b) { return (($a | ConvertTo-Json -Compress -Depth 10) -eq ($b | ConvertTo-Json -Compress -Depth 10)) }
 
 function Has-Ours-SA($j) { return @(@($j.names) | Where-Object { $_ -eq 'DinoBonesAP.dll' }).Count -gt 0 }
@@ -124,6 +129,13 @@ function Remove-OldBepInExPlugin {
 
 # ---- uninstall ------------------------------------------------------------------------------------
 if ($Uninstall) {
+    # Check first, change nothing if a woven game DLL cannot be put back (the game would not start without our plugin).
+    foreach ($asm in $WovenAsms) {
+        $dll = Join-Path $Managed "$asm.dll"
+        if ((Is-Woven $dll) -and -not (Is-Original "$dll.orig")) {
+            Die "$asm.dll contains the Archipelago hooks but $asm.dll.orig is missing or not the original. Nothing was changed. Use Steam's 'Verify integrity of game files', then run -Uninstall again."
+        }
+    }
     foreach ($pair in @(@($SaPath, 'SA'), @($RioPath, 'RIO'))) {
         $path = $pair[0]; $kind = $pair[1]; $bak = "$path.dinoap.bak"
         $cur = Read-Json $path
@@ -143,8 +155,7 @@ if ($Uninstall) {
     foreach ($asm in $WovenAsms) {
         $dll = Join-Path $Managed "$asm.dll"; $orig = "$dll.orig"
         if (Is-Woven $dll) {
-            if (Test-Path -LiteralPath $orig) { Copy-Item -LiteralPath $orig -Destination $dll -Force; Say "Restored the original $asm.dll" }
-            else { Say "Warning: $asm.dll is woven and $asm.dll.orig is missing. Use Steam's 'Verify integrity of game files'." }
+            Copy-Item -LiteralPath $orig -Destination $dll -Force; Say "Restored the original $asm.dll"
         }
         foreach ($p in $orig, "$orig.tmp", "$dll.tmp") { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force; $gone += (Split-Path $p -Leaf) } }
     }
