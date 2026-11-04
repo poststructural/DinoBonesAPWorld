@@ -2,36 +2,42 @@
 
 ## Requirements
 
-- DinoBones: Tidy Up the Museum on Steam (Windows or macOS).
-- [BepInEx 5.4.23.3](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.3): `BepInEx_win_x64_5.4.23.3.zip`
-  on Windows, `BepInEx_macos_x64_5.4.23.3.zip` on macOS.
-- `DinoBonesAP.dll` (the Dino Bones Archipelago plugin).
+- DinoBones: Tidy Up the Museum on Steam (Windows, or macOS including Apple Silicon).
+- From the [latest release](https://github.com/poststructural/DinoBonesAPWorld/releases/latest):
+  `DinoBonesAP.dll`, `Mono.Cecil.dll`, and `install_windows.ps1` or `install_mac.sh`.
 - [Archipelago](https://github.com/ArchipelagoMW/Archipelago/releases) with `dino_bones.apworld` installed.
+
+BepInEx is not needed (from plugin 0.2.0). If you installed BepInEx for an older version, the installer removes
+the old plugin from `BepInEx/plugins`; you can leave BepInEx itself or delete it.
 
 ## Install on Windows
 
-1. Extract the BepInEx zip into the game folder (next to `DinoBones.exe`).
-2. **Rename `winhttp.dll` to `version.dll`.** This game does not load BepInEx through `winhttp.dll`.
-3. Start the game once and close it, so BepInEx creates its folders. `BepInEx\LogOutput.log` should now exist.
-4. Put `DinoBonesAP.dll` in `BepInEx\plugins\`.
+1. Put `install_windows.ps1`, `DinoBonesAP.dll` and `Mono.Cecil.dll` in one folder.
+2. Right-click `install_windows.ps1` > **Run with PowerShell**, or run
+   `powershell -ExecutionPolicy Bypass -File install_windows.ps1`. It finds the game in your Steam libraries;
+   add `-GamePath "D:\path\to\DinoBones Tidy Up the Museum"` if it does not.
+3. Start the game once. It shows "finished setting up": quit and start it again. From then on it just works.
 
 ## Install on macOS
 
-1. Download `install_mac.sh` from the release and open Terminal.
-2. Run `sh ~/Downloads/install_mac.sh`. It finds the game in your Steam libraries (or pass the app's path:
-   `sh install_mac.sh "/path/to/DinoBones.app"`), installs BepInEx and the plugin, and puts the Steam launch
-   option on your clipboard.
-3. In Steam, open the game's Properties > General > Launch Options and paste it. It looks like
-   `"/path/to/run_dinobones_ap.sh" %command%`.
+1. Download `install_mac.sh` from the release (put `DinoBonesAP.dll` and `Mono.Cecil.dll` next to it, or
+   let it download them) and open Terminal.
+2. Run `sh ~/Downloads/install_mac.sh`. It finds the game in your Steam libraries, or pass the app's path:
+   `sh install_mac.sh "/path/to/DinoBones.app"`. If macOS says Terminal may not change the app, allow it
+   under System Settings > Privacy & Security > App Management and run the installer again.
+3. Start the game from Steam as usual (no launch option, no Rosetta). It shows "finished setting up": quit and
+   start it again. If you set the launch option from version 0.1.1, you can clear it.
 
-BepInEx's macOS injector is Intel-only, so on Apple Silicon the launcher starts the game under Rosetta
-(install Rosetta if macOS asks). If the game is signed with the hardened runtime, the installer offers to
-re-sign it locally so BepInEx can load; Steam's "Verify integrity of game files" undoes that, so run the
-installer again afterwards. Running it again also updates the plugin.
+## How it works, updates and uninstalling
 
-To install by hand instead: extract `BepInEx_macos_x64_5.4.23.3.zip` next to `DinoBones.app`, put
-`DinoBonesAP.dll` in `BepInEx/plugins/`, and launch through `run_bepinex.sh` as an Intel process
-(`arch -x86_64 /bin/sh run_bepinex.sh %command%`).
+The installer copies the two DLLs into the game's `Managed` folder and adds the plugin to
+`ScriptingAssemblies.json` and `RuntimeInitializeOnLoads.json` (backups: `*.dinoap.bak`). On the first start the
+plugin keeps `DinoMuseum.dll` and `IndieSouls.Runtime.dll` as `*.dll.orig` and replaces them with copies that
+contain its hooks, which is why one restart is needed. After a game update or Steam's "Verify integrity of game
+files" it does this again by itself (one more restart). If the plugin stops loading at all after a game update,
+run the installer again.
+
+To uninstall, run the installer with `-Uninstall` (Windows) or `--uninstall` (macOS). It restores the game files.
 
 ## Play
 

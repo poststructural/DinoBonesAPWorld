@@ -12,8 +12,6 @@
     <NoWarn>$(NoWarn);CS0649;CS0169;CS0414;NU1701;MSB3277</NoWarn>
     <!-- Override with: dotnet build -p:GameDir="D:\Games\DinoBones\" -->
     <GameDir Condition="'$(GameDir)' == ''">$(MSBuildThisFileDirectory)..\..\DinoBones Tidy Up the Museum\</GameDir>
-    <!-- BepInEx 5 core, referenced by path from the sibling Cozy Cleaner tools folder (not copied). -->
-    <BepInExCore Condition="'$(BepInExCore)' == ''">$(GameDir)BepInEx\core\</BepInExCore>
     <ManagedDir>$(GameDir)DinoBones_Data\Managed\</ManagedDir>
     <ReleaseDir Condition="'$(ReleaseDir)' == ''">$(MSBuildThisFileDirectory)..\..\release\</ReleaseDir>
   </PropertyGroup>
@@ -28,15 +26,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="BepInEx">
-      <HintPath>$(BepInExCore)BepInEx.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>$(BepInExCore)0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="$(ManagedDir)*.dll">
+    <!-- Mono.Cecil 0.10.4 (net40) ships next to DinoBonesAP.dll in Managed; it runs on the game's Mono. -->
+    <PackageReference Include="Mono.Cecil" Version="0.10.4" />
+    <!-- Our own files and the woven copies live in Managed too once installed: never compile against them. -->
+    <Reference Include="$(ManagedDir)*.dll" Exclude="$(ManagedDir)DinoBonesAP.dll;$(ManagedDir)*.AP.dll;$(ManagedDir)Mono.Cecil*.dll">
       <Private>false</Private>
     </Reference>
   </ItemGroup>
@@ -44,6 +37,7 @@
   <Target Name="CopyToRelease" AfterTargets="Build">
     <MakeDir Directories="$(ReleaseDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ReleaseDir)" />
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'Mono.Cecil.dll'" DestinationFolder="$(ReleaseDir)" />
   </Target>
 
 </Project>

@@ -1,21 +1,37 @@
 #!/bin/sh
-# Dino Bones Archipelago: macOS installer.
+# Dino Bones Archipelago: macOS installer (native loader: no BepInEx, no Rosetta, no Steam launch option).
 #
-#   sh install_mac.sh                 find the game in your Steam libraries
+#   sh install_mac.sh                              find the game in your Steam libraries
 #   sh install_mac.sh /path/to/DinoBones.app
+#   sh install_mac.sh --uninstall [/path/to/DinoBones.app]
 #
-# It installs BepInEx 5.4.23.3 (macOS x64) next to the game app, adds the DinoBonesAP plugin, writes a
-# launcher that runs the game under Rosetta on Apple Silicon (BepInEx's injector is Intel-only), and prints
-# the Steam launch option to use. Run it again to update the plugin.
+# Install copies DinoBonesAP.dll and Mono.Cecil.dll into DinoBones.app/Contents/Resources/Data/Managed (from this
+# script's folder, or downloaded from the latest GitHub release), backs up ScriptingAssemblies.json and
+# RuntimeInitializeOnLoads.json (*.dinoap.bak) and adds the plugin's entries to them.
+# On the first game start the plugin saves DinoMuseum.dll and IndieSouls.Runtime.dll as *.dll.orig, replaces them
+# with woven builds (its hooks) and asks for one restart. It re-weaves by itself after a game update.
+# Uninstall removes our DLLs, puts the *.dll.orig game files back and restores both JSON files.
+# Run it again to update the plugin.
 set -eu
 
-BEPINEX_URL="https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.3/BepInEx_macos_x64_5.4.23.3.zip"
-BEPINEX_SHA256="22a872efae6ee658019bd7c25fdb05b361aad876453a4d7b988790e7259a9088"
-PLUGIN_URL="https://github.com/poststructural/DinoBonesAPWorld/releases/latest/download/DinoBonesAP.dll"
-LAUNCHER="run_dinobones_ap.sh"
+RELEASE_URL="https://github.com/poststructural/DinoBonesAPWorld/releases/latest/download"
+OUR_DLLS="DinoBonesAP.dll Mono.Cecil.dll"
+WOVEN_ASMS="DinoMuseum IndieSouls.Runtime"
+OLD_LAUNCHER="run_dinobones_ap.sh"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+UNINSTALL=0
+APP=""
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=1 ;;
+        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        -*) die "Unknown option: $arg" ;;
+        *) APP="$arg" ;;
+    esac
+done
 
 # ---- find the game -----------------------------------------------------------------------------
 find_app() {
@@ -33,102 +49,164 @@ find_app() {
     done | head -n 1
 }
 
-APP="${1:-}"
 if [ -z "$APP" ]; then
     APP=$(find_app)
     [ -n "$APP" ] || die "Could not find DinoBones.app in your Steam libraries. Run: sh install_mac.sh /path/to/DinoBones.app"
 fi
 APP="${APP%/}"
 [ -d "$APP/Contents/MacOS" ] || die "$APP is not a macOS app bundle."
-GAME_DIR=$(cd "$(dirname "$APP")" && pwd -P)
-APP_NAME=$(basename "$APP")
-EXE_NAME=$(defaults read "$GAME_DIR/$APP_NAME/Contents/Info" CFBundleExecutable 2>/dev/null || true)
-[ -n "$EXE_NAME" ] || die "Could not read the game's executable name from Info.plist."
-EXE="$GAME_DIR/$APP_NAME/Contents/MacOS/$EXE_NAME"
-say "Game:    $GAME_DIR/$APP_NAME"
+APP=$(cd "$APP" && pwd -P)
+GAME_DIR=$(dirname "$APP")
+DATA="$APP/Contents/Resources/Data"
+MANAGED="$DATA/Managed"
+SA="$DATA/ScriptingAssemblies.json"
+RIO="$DATA/RuntimeInitializeOnLoads.json"
+for p in "$MANAGED" "$SA" "$RIO" "$MANAGED/DinoMuseum.dll"; do
+    [ -e "$p" ] || die "$p not found. The plugin needs the Mono build of the game."
+done
+say "Game: $APP"
+if pgrep -f "$APP/Contents/MacOS/" >/dev/null 2>&1; then die "DinoBones is running. Quit the game first."; fi
 
-# BepInEx 5 only injects into the Intel build, so the game must have an x86_64 slice.
-case "$(file -b "$EXE")" in
-    *x86_64*) ;;
-    *) die "This game build has no Intel (x86_64) code, so BepInEx 5 cannot load into it. Please report this." ;;
-esac
-# Apple Silicon runs the game through Rosetta, which must be installed.
-if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ] && ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
-    say "Rosetta is needed on Apple Silicon. Installing it (you may be asked for your password)..."
-    softwareupdate --install-rosetta --agree-to-license || die "Rosetta install failed. Run: softwareupdate --install-rosetta"
-fi
-[ -d "$GAME_DIR/$APP_NAME/Contents/Resources/Data/Managed" ] || say "Warning: no Managed folder found; the plugin needs the Mono build of the game."
-
-# ---- download ----------------------------------------------------------------------------------
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-say "Downloading BepInEx 5.4.23.3..."
-curl -fsSL -o "$TMP/bepinex.zip" "$BEPINEX_URL" || die "BepInEx download failed."
-got=$(shasum -a 256 "$TMP/bepinex.zip" | cut -d' ' -f1)
-[ "$got" = "$BEPINEX_SHA256" ] || die "BepInEx download checksum mismatch ($got)."
+# ---- JSON edits (JXA: macOS has no python by default) -------------------------------------------
+cat > "$TMP/json.js" <<'EOF'
+ObjC.import('Foundation');
+function readText(p) {
+    var s = $.NSString.stringWithContentsOfFileEncodingError(p, $.NSUTF8StringEncoding, $());
+    if (typeof s.js !== 'string') throw new Error('cannot read ' + p);
+    return s.js;
+}
+function readJson(p) { return JSON.parse(readText(p)); }
+function writeJson(p, o, like) {
+    var s = JSON.stringify(o);
+    if (like && /\n$/.test(readText(like))) s += '\n';
+    if (!$(s).writeToFileAtomicallyEncodingError(p, true, $.NSUTF8StringEncoding, $())) throw new Error('cannot write ' + p);
+}
+var ENTRY = {assemblyName: 'DinoBonesAP', nameSpace: 'DinoBonesAP', className: 'Plugin', methodName: 'Boot', loadTypes: 1, isUnityClass: false};
+function hasSa(j) { return j.names.indexOf('DinoBonesAP.dll') >= 0; }
+function hasRio(j) { return j.root.some(function (e) { return e.assemblyName === 'DinoBonesAP'; }); }
+function cleanSa(j) {
+    var n = [], t = [];
+    for (var i = 0; i < j.names.length; i++) if (j.names[i] !== 'DinoBonesAP.dll') { n.push(j.names[i]); t.push(j.types[i]); }
+    j.names = n; j.types = t; return j;
+}
+function cleanRio(j) { j.root = j.root.filter(function (e) { return e.assemblyName !== 'DinoBonesAP'; }); return j; }
+function run(argv) {
+    var op = argv[0], f = argv[1], j;
+    switch (op) {
+        case 'has-sa': return hasSa(readJson(f)) ? 'yes' : 'no';
+        case 'has-rio': return hasRio(readJson(f)) ? 'yes' : 'no';
+        case 'add-sa':
+            j = readJson(f); if (hasSa(j)) return 'present';
+            j.names.push('DinoBonesAP.dll'); j.types.push(16); writeJson(f, j, f); return 'added';
+        case 'add-rio':
+            j = readJson(f); if (hasRio(j)) return 'present';
+            j.root.push(ENTRY); writeJson(f, j, f); return 'added';
+        case 'clean-sa': writeJson(argv[2], cleanSa(readJson(f)), f); return 'ok';
+        case 'clean-rio': writeJson(argv[2], cleanRio(readJson(f)), f); return 'ok';
+        case 'same': return JSON.stringify(readJson(f)) === JSON.stringify(readJson(argv[2])) ? 'yes' : 'no';
+    }
+    throw new Error('unknown op ' + op);
+}
+EOF
+json() { osascript -l JavaScript "$TMP/json.js" "$@"; }
 
-HERE=$(cd "$(dirname "$0")" && pwd -P)
-if [ -f "$HERE/DinoBonesAP.dll" ]; then
-    say "Using DinoBonesAP.dll next to this script."
-    cp "$HERE/DinoBonesAP.dll" "$TMP/DinoBonesAP.dll"
-else
-    say "Downloading the latest DinoBonesAP.dll..."
-    curl -fsSL -o "$TMP/DinoBonesAP.dll" "$PLUGIN_URL" || die "Plugin download failed."
+is_woven() { [ -f "$1" ] && LC_ALL=C grep -q 'DinoBonesAP.Woven' "$1"; }
+
+# macOS 13+ may block Terminal from changing files inside an app ("App Management").
+copy_in() {
+    cp -f "$1" "$2" 2>/dev/null && return 0
+    die "Could not write $2. Allow your terminal app under System Settings > Privacy & Security > App Management, then run this again."
+}
+
+remove_old_bepinex_plugin() {
+    for p in "$GAME_DIR/BepInEx/plugins/DinoBonesAP.dll" "$GAME_DIR/BepInEx/plugins/DinoBonesAP"; do
+        if [ -e "$p" ]; then rm -rf "$p"; say "Removed the old BepInEx plugin: $p"; fi
+    done
+    # 0.1.1 told players to set a Steam launch option that runs this script under Rosetta. Keep the file so an old
+    # launch option still starts the game, but make it start the game directly.
+    if [ -f "$GAME_DIR/$OLD_LAUNCHER" ]; then
+        cat > "$GAME_DIR/$OLD_LAUNCHER" <<'EOF'
+#!/bin/sh
+# Dino Bones Archipelago no longer needs a launcher; this only starts the game. You can clear the Steam launch option.
+exec "$@"
+EOF
+        chmod +x "$GAME_DIR/$OLD_LAUNCHER"
+        say "Note: if you set the Steam launch option from version 0.1.1, you can clear it now (it is no longer needed)."
+    fi
+}
+
+# ---- uninstall ---------------------------------------------------------------------------------
+if [ "$UNINSTALL" = 1 ]; then
+    for kind in sa rio; do
+        if [ "$kind" = sa ]; then f="$SA"; else f="$RIO"; fi
+        bak="$f.dinoap.bak"
+        json "clean-$kind" "$f" "$TMP/clean.json" >/dev/null
+        if [ -f "$bak" ] && [ "$(json same "$TMP/clean.json" "$bak")" = yes ]; then
+            copy_in "$bak" "$f"; say "Restored $(basename "$f") from the backup"
+        else
+            copy_in "$TMP/clean.json" "$f"
+            if [ -f "$bak" ]; then say "Removed our entries from $(basename "$f") (the backup differs, probably a game update; kept the current file)"
+            else say "Removed our entries from $(basename "$f")"; fi
+        fi
+        rm -f "$bak"
+    done
+    for asm in $WOVEN_ASMS; do
+        dll="$MANAGED/$asm.dll"
+        if is_woven "$dll"; then
+            if [ -f "$dll.orig" ]; then copy_in "$dll.orig" "$dll"; say "Restored the original $asm.dll"
+            else say "Warning: $asm.dll is woven and $asm.dll.orig is missing. Use Steam's 'Verify integrity of game files'."; fi
+        fi
+        rm -f "$dll.orig" "$dll.orig.tmp" "$dll.tmp"
+    done
+    for f in $OUR_DLLS; do rm -f "$MANAGED/$f"; done
+    remove_old_bepinex_plugin
+    say "Uninstalled. The game is vanilla again (AP saves stay in ~/DinoBonesAP)."
+    exit 0
 fi
 
 # ---- install -----------------------------------------------------------------------------------
-say "Installing BepInEx into $GAME_DIR"
-# -n keeps an existing BepInEx config; core files and the launcher script are refreshed.
-unzip -q -n "$TMP/bepinex.zip" -d "$GAME_DIR"
-unzip -q -o "$TMP/bepinex.zip" 'BepInEx/core/*' run_bepinex.sh libdoorstop.dylib -d "$GAME_DIR"
-mkdir -p "$GAME_DIR/BepInEx/plugins"
-cp "$TMP/DinoBonesAP.dll" "$GAME_DIR/BepInEx/plugins/DinoBonesAP.dll"
-
-# Our launcher: on Apple Silicon start BepInEx's script as an Intel process, so the game it launches
-# runs under Rosetta and the Intel-only injector (libdoorstop.dylib) can load.
-cat > "$GAME_DIR/$LAUNCHER" <<'EOF'
-#!/bin/sh
-# Dino Bones Archipelago launcher (written by install_mac.sh). Steam launch option:
-#   "/path/to/run_dinobones_ap.sh" %command%
-DIR=$(cd "$(dirname "$0")" && pwd -P)
-if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
-    exec arch -x86_64 /bin/sh "$DIR/run_bepinex.sh" "$@"
-fi
-exec /bin/sh "$DIR/run_bepinex.sh" "$@"
-EOF
-chmod +x "$GAME_DIR/$LAUNCHER" "$GAME_DIR/run_bepinex.sh"
-xattr -dr com.apple.quarantine "$GAME_DIR/BepInEx" "$GAME_DIR/libdoorstop.dylib" "$GAME_DIR/run_bepinex.sh" "$GAME_DIR/$LAUNCHER" 2>/dev/null || true
-
-# Apps signed with the hardened runtime ignore injected libraries. An ad-hoc signature lifts that.
-if codesign -dv "$GAME_DIR/$APP_NAME" 2>&1 | grep -q 'flags=.*runtime'; then
-    say ""
-    say "The game is signed with the hardened runtime, which blocks BepInEx."
-    say "Re-signing it locally (ad-hoc) fixes this. Steam's 'Verify integrity of game files' undoes it;"
-    say "if that happens, run this installer again."
-    answer=y
-    if [ -t 0 ]; then
-        printf 'Re-sign the game now? [Y/n] '
-        read -r answer || answer=y
-    fi
-    case "$answer" in
-        n|N|no|NO) say "Skipped. BepInEx will probably not load until the game is re-signed." ;;
-        *)
-            codesign --force --deep --sign - "$GAME_DIR/$APP_NAME" || die "Re-signing failed; BepInEx will be blocked."
-            say "Re-signed."
-            ;;
-    esac
+HERE=$(cd "$(dirname "$0")" && pwd -P)
+SRC=""
+for d in "$HERE" "$HERE/../release"; do
+    ok=1
+    for f in $OUR_DLLS; do [ -f "$d/$f" ] || ok=0; done
+    if [ "$ok" = 1 ]; then SRC=$(cd "$d" && pwd -P); break; fi
+done
+if [ -n "$SRC" ]; then
+    say "Using the DLLs in $SRC"
+else
+    say "Downloading the latest DinoBonesAP.dll and Mono.Cecil.dll..."
+    for f in $OUR_DLLS; do
+        curl -fsSL -o "$TMP/$f" "$RELEASE_URL/$f" || die "Download of $f failed."
+    done
+    SRC="$TMP"
 fi
 
-OPTION="\"$GAME_DIR/$LAUNCHER\" %command%"
+# Back up the manifests while they are vanilla (refreshed after a game update rewrote them).
+if [ "$(json has-sa "$SA")" = no ]; then cp -f "$SA" "$SA.dinoap.bak"; say "Backed up ScriptingAssemblies.json"; fi
+if [ "$(json has-rio "$RIO")" = no ]; then cp -f "$RIO" "$RIO.dinoap.bak"; say "Backed up RuntimeInitializeOnLoads.json"; fi
+
+for f in $OUR_DLLS; do
+    copy_in "$SRC/$f" "$MANAGED/$f"
+    xattr -d com.apple.quarantine "$MANAGED/$f" 2>/dev/null || true
+done
+say "Copied $OUR_DLLS into $MANAGED"
+
+case "$(json add-sa "$SA")" in
+    added) say "Added DinoBonesAP.dll to ScriptingAssemblies.json" ;;
+    *) say "ScriptingAssemblies.json already lists DinoBonesAP.dll" ;;
+esac
+case "$(json add-rio "$RIO")" in
+    added) say "Added the DinoBonesAP boot entry to RuntimeInitializeOnLoads.json" ;;
+    *) say "RuntimeInitializeOnLoads.json already has the DinoBonesAP entry" ;;
+esac
+
+remove_old_bepinex_plugin
+
 say ""
-say "Done. Last step, in Steam:"
-say "  Library > DinoBones > right-click > Properties > General > Launch Options, and paste:"
-say ""
-say "  $OPTION"
-say ""
-if command -v pbcopy >/dev/null 2>&1; then
-    printf '%s' "$OPTION" | pbcopy && say "(The launch option is already on your clipboard.)"
-fi
-say "Start the Dino Bones Client in Archipelago and connect before starting the game."
-say "BepInEx log: $GAME_DIR/BepInEx/LogOutput.log"
+say "Done. Start the Dino Bones Client in the Archipelago Launcher, then start the game from Steam as usual."
+say "The first start sets up the hooks and asks you to quit and start the game once more."
+say "Log: ~/DinoBonesAP/plugin.log (and ~/Library/Logs/Indie Souls Studio/DinoBones/Player.log)"

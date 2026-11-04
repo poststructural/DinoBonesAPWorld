@@ -9,13 +9,16 @@ using DinoMuseum.Equipment;
 using DinoMuseum.ModelKit;
 using DinoMuseum.Photo;
 using DinoMuseum.Supports;
-using HarmonyLib;
 using IndieSouls.Save;
 using IndieSouls.UI.Seams;
 using UnityEngine;
 
 namespace DinoBonesAP
 {
+    // Hooks are IL woven into the game assemblies by Weaver.cs (Harmony conventions: Prefix/Postfix, __instance,
+    // __result, arguments by name; a bool Prefix returning false skips the original). Hook classes and methods
+    // must be public: the woven game code calls them across assemblies.
+
     // ===================================================================== save isolation
     // IndieSouls.Save.SavePaths.SavesDirFor(accountId) is the single source of the save folder: SavesDir,
     // MuseumSaveFiles, SaveSlots, OfflineSaves, the achievement ledger and the achievement recovery scan all
@@ -25,6 +28,8 @@ namespace DinoBonesAP
         static bool decided, vanilla;
         public static string Root()
         {
+            Plugin.EnsureCore();
+            if (!Plugin.HooksActive) return null;   // setup session (stale or partial weave): stay vanilla, quietly
             Bridge.SaveBooted = true;
             if (!decided)
             {
@@ -47,10 +52,10 @@ namespace DinoBonesAP
         }
     }
 
-    [HarmonyPatch(typeof(SavePaths), nameof(SavePaths.SavesDirFor))]
-    static class P_SavesDirFor
+    [Hook(typeof(SavePaths), nameof(SavePaths.SavesDirFor))]
+    public static class P_SavesDirFor
     {
-        static bool Prefix(string accountId, ref string __result)
+        public static bool Prefix(string accountId, ref string __result)
         {
             try
             {
@@ -63,10 +68,10 @@ namespace DinoBonesAP
         }
     }
 
-    [HarmonyPatch(typeof(SavePaths), nameof(SavePaths.PhotosDirFor))]
-    static class P_PhotosDirFor
+    [Hook(typeof(SavePaths), nameof(SavePaths.PhotosDirFor))]
+    public static class P_PhotosDirFor
     {
-        static bool Prefix(int slot, ref string __result)
+        public static bool Prefix(int slot, ref string __result)
         {
             try
             {
@@ -81,10 +86,10 @@ namespace DinoBonesAP
 
 
     // Same redirect on the property getters. Mono may inline these tiny methods into callers, so each layer is patched.
-    [HarmonyPatch(typeof(SavePaths), nameof(SavePaths.SavesDir), MethodType.Getter)]
-    static class P_SavesDirGet
+    [Hook(typeof(SavePaths), "get_SavesDir")]
+    public static class P_SavesDirGet
     {
-        static bool Prefix(ref string __result)
+        public static bool Prefix(ref string __result)
         {
             try
             {
@@ -97,10 +102,10 @@ namespace DinoBonesAP
         }
     }
 
-    [HarmonyPatch(typeof(SavePaths), nameof(SavePaths.PhotosDir), MethodType.Getter)]
-    static class P_PhotosDirGet
+    [Hook(typeof(SavePaths), "get_PhotosDir")]
+    public static class P_PhotosDirGet
     {
-        static bool Prefix(ref string __result)
+        public static bool Prefix(ref string __result)
         {
             try
             {
@@ -114,10 +119,10 @@ namespace DinoBonesAP
     }
 
     // Account settings (volume, keybinds, ...) stay in the normal location so the player's options are kept.
-    [HarmonyPatch(typeof(AccountSettingsFile), nameof(AccountSettingsFile.Path), MethodType.Getter)]
-    static class P_AccountSettingsPath
+    [Hook(typeof(AccountSettingsFile), "get_Path")]
+    public static class P_AccountSettingsPath
     {
-        static bool Prefix(ref string __result)
+        public static bool Prefix(ref string __result)
         {
             try
             {
@@ -134,10 +139,10 @@ namespace DinoBonesAP
     // ===================================================================== bones: permit gate
     // BonePlacer.StartFlight is the one private funnel behind TryPlace (hand placement) and TryPlaceInto
     // (auto-fill flight); it is where rig.MarkPlaced happens, so refusing here covers both.
-    [HarmonyPatch(typeof(BonePlacer), "StartFlight")]
-    static class P_StartFlight
+    [Hook(typeof(BonePlacer), "StartFlight")]
+    public static class P_StartFlight
     {
-        static bool Prefix(BlueprintRig rig, ref bool __result)
+        public static bool Prefix(BlueprintRig rig, ref bool __result)
         {
             try
             {
@@ -151,10 +156,10 @@ namespace DinoBonesAP
     }
 
     // The U-key auto-fill cheat restores bones directly (RestorePlaced), bypassing StartFlight.
-    [HarmonyPatch(typeof(BoneGrabber), "StartAutoFillRun")]
-    static class P_AutoFill
+    [Hook(typeof(BoneGrabber), "StartAutoFillRun")]
+    public static class P_AutoFill
     {
-        static bool Prefix(BlueprintRig rig, out int missing, ref int __result)
+        public static bool Prefix(BlueprintRig rig, out int missing, ref int __result)
         {
             missing = 0;
             try
@@ -169,29 +174,29 @@ namespace DinoBonesAP
     }
 
     // ===================================================================== bones: counting (state based, so loads count too)
-    [HarmonyPatch(typeof(BlueprintRig), "MarkPlaced")]
-    static class P_MarkPlaced
+    [Hook(typeof(BlueprintRig), "MarkPlaced")]
+    public static class P_MarkPlaced
     {
-        static void Postfix(BlueprintRig __instance, bool __result)
+        public static void Postfix(BlueprintRig __instance, bool __result)
         {
             if (__result && Bridge.Connected) Locs.Bones(__instance.Species, __instance.PlacedCount);
         }
     }
 
-    [HarmonyPatch(typeof(BlueprintRig), "MarkArrived")]
-    static class P_MarkArrived
+    [Hook(typeof(BlueprintRig), "MarkArrived")]
+    public static class P_MarkArrived
     {
-        static void Postfix(BlueprintRig __instance, bool __result)
+        public static void Postfix(BlueprintRig __instance, bool __result)
         {
             if (__result && Bridge.Connected) Locs.Bones(__instance.Species, __instance.PlacedCount);
         }
     }
 
     // ===================================================================== coins (immediate; the scan also covers loads)
-    [HarmonyPatch(typeof(CoinAlbum), nameof(CoinAlbum.TryPlace))]
-    static class P_CoinPlace
+    [Hook(typeof(CoinAlbum), nameof(CoinAlbum.TryPlace))]
+    public static class P_CoinPlace
     {
-        static void Postfix(Coin coin, bool __result)
+        public static void Postfix(Coin coin, bool __result)
         {
             if (__result && coin != null) Locs.Collection(coin.Species, "Coin");
         }
@@ -200,58 +205,58 @@ namespace DinoBonesAP
     // ===================================================================== achievements / photos / gardens
     // Private AchievementLog.Report(id, live) is the funnel for Report, ReportRecovered and the tracker; it returns
     // true only for ids new this session, and a loaded save replays earned ids through it.
-    [HarmonyPatch(typeof(AchievementLog), "Report", new[] { typeof(string), typeof(bool) })]
-    static class P_Report
+    [Hook(typeof(AchievementLog), "Report", typeof(string), typeof(bool))]
+    public static class P_Report
     {
-        static void Postfix(string id, bool __result)
+        public static void Postfix(string id, bool __result)
         {
             if (__result && Bridge.Connected) Locs.Achievement(id);
         }
     }
 
-    [HarmonyPatch(typeof(AchievementLog), nameof(AchievementLog.MarkExhibitPhotographed))]
-    static class P_ExhibitPhoto
+    [Hook(typeof(AchievementLog), nameof(AchievementLog.MarkExhibitPhotographed))]
+    public static class P_ExhibitPhoto
     {
-        static void Postfix(string species, bool __result)
+        public static void Postfix(string species, bool __result)
         {
             if (__result) Locs.ExhibitPhoto(species);
         }
     }
 
-    [HarmonyPatch(typeof(AchievementLog), nameof(AchievementLog.MarkGardenMaxed))]
-    static class P_GardenMaxed
+    [Hook(typeof(AchievementLog), nameof(AchievementLog.MarkGardenMaxed))]
+    public static class P_GardenMaxed
     {
-        static void Postfix(bool __result)
+        public static void Postfix(bool __result)
         {
             if (__result) Locs.Garden(AchievementLog.GardensMaxedCount);
         }
     }
 
     // ===================================================================== model kit
-    [HarmonyPatch(typeof(ModelKitHole), "Collect", new[] { typeof(ModelKitPieceBody), typeof(bool) })]
-    static class P_KitCollect
+    [Hook(typeof(ModelKitHole), "Collect", typeof(ModelKitPieceBody), typeof(bool))]
+    public static class P_KitCollect
     {
-        static void Postfix(ModelKitPieceBody body, bool __result)
+        public static void Postfix(ModelKitPieceBody body, bool __result)
         {
             if (__result && body != null) Locs.KitPieceFound(body.Piece);
         }
     }
 
     // ===================================================================== goal
-    [HarmonyPatch(typeof(EndgameSequence), "End")]
-    static class P_EndgameEnd
+    [Hook(typeof(EndgameSequence), "End")]
+    public static class P_EndgameEnd
     {
-        static void Postfix(bool completed)
+        public static void Postfix(bool completed)
         {
             if (completed && Bridge.Connected && Bridge.Slot.goal == "endgame") Bridge.SendGoal();
         }
     }
 
     // A loaded save that already played the ending.
-    [HarmonyPatch(typeof(EndgameSequence), nameof(EndgameSequence.RestorePlayed))]
-    static class P_EndgameRestore
+    [Hook(typeof(EndgameSequence), nameof(EndgameSequence.RestorePlayed))]
+    public static class P_EndgameRestore
     {
-        static void Postfix()
+        public static void Postfix()
         {
             if (Bridge.Connected && Bridge.Slot.goal == "endgame") Bridge.SendGoal();
         }
@@ -260,10 +265,10 @@ namespace DinoBonesAP
     // ===================================================================== equipment gating
     // The secret spawns the tool as a HandItem in the world; the player owns it once PlayerHand.Take runs
     // (NoteEquipmentTaken -> EquipmentInventory.Set(InHand)). Refuse the pickup until the AP item arrived.
-    [HarmonyPatch(typeof(PlayerHand), "Take")]
-    static class P_Take
+    [Hook(typeof(PlayerHand), "Take")]
+    public static class P_Take
     {
-        static bool Prefix(PlayerHand __instance, HandItem item)
+        public static bool Prefix(PlayerHand __instance, HandItem item)
         {
             try
             {
@@ -280,10 +285,10 @@ namespace DinoBonesAP
     }
 
     // EquipmentInventory.Unlock is only reached by the debug cheat (PlayerHand.CheatUnlock); keep it closed too.
-    [HarmonyPatch(typeof(EquipmentInventory), nameof(EquipmentInventory.Unlock))]
-    static class P_EquipUnlock
+    [Hook(typeof(EquipmentInventory), nameof(EquipmentInventory.Unlock))]
+    public static class P_EquipUnlock
     {
-        static bool Prefix(EquipmentKind kind, ref bool __result)
+        public static bool Prefix(EquipmentKind kind, ref bool __result)
         {
             if (!Bridge.Connected || Tools.Allow || Tools.HasEquipment(kind)) return true;
             __result = false;
@@ -292,10 +297,10 @@ namespace DinoBonesAP
     }
 
     // The Brachiosaurus secret hammer: HammerPickup.Take / HammerSecret -> BreakAbility.Unlock() -> private Set(true).
-    [HarmonyPatch(typeof(BreakAbility), "Set")]
-    static class P_BreakSet
+    [Hook(typeof(BreakAbility), "Set")]
+    public static class P_BreakSet
     {
-        static bool Prefix(bool unlocked, ref bool __result)
+        public static bool Prefix(bool unlocked, ref bool __result)
         {
             if (!unlocked || !Bridge.Connected || Tools.Allow || Bridge.HasItem(Spec.HammerItem)) return true;
             Tools.Refuse("The Crate Hammer is an Archipelago item");

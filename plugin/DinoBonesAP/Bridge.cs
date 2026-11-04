@@ -77,15 +77,21 @@ namespace DinoBonesAP
         public static string CurrentTxt { get { return Path.Combine(Root, "current.txt"); } }
 
         // ---------------------------------------------------------------- init
-        public static void Init()
+        public static string ComputeRoot()
         {
+            // DINOBONES_AP_ROOT matches the client's --bridge-root (testing, or a non-default home).
+            string over = Environment.GetEnvironmentVariable("DINOBONES_AP_ROOT");
+            if (!string.IsNullOrEmpty(over)) return over;
             string home = null;
             try { home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile); } catch { }
             if (string.IsNullOrEmpty(home))
                 home = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetEnvironmentVariable("USERPROFILE") ?? ".";
-            // DINOBONES_AP_ROOT matches the client's --bridge-root (testing, or a non-default home).
-            string over = Environment.GetEnvironmentVariable("DINOBONES_AP_ROOT");
-            Root = string.IsNullOrEmpty(over) ? Path.Combine(home, "DinoBonesAP") : over;
+            return Path.Combine(home, "DinoBonesAP");
+        }
+
+        public static void Init()
+        {
+            Root = ComputeRoot();
             try { Directory.CreateDirectory(Root); } catch { }
             string cur = ReadCurrent();
             if (cur != null) SwitchDir(Path.Combine(Root, cur));
